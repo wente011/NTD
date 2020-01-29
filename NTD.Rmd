@@ -1,0 +1,242 @@
+---
+title: "NTD"
+author: "J.Wente"
+date: "1/23/2020"
+output: html_document
+---
+#A basic markdown for exploring the National Transit Database data
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plotly)
+library(tidyverse)
+library(lubridate)
+library(stringi)
+library(magrittr)
+library(readxl)
+```
+
+
+```{r data prep, include=FALSE}
+df<-read_excel("November 2019 Raw Database.xlsx",sheet="MASTER")
+upt<-read_excel("November 2019 Raw Database.xlsx",sheet="UPT")
+vrm<-read_excel("November 2019 Raw Database.xlsx",sheet="VRM")
+
+pop<- df %>% filter(is.na(Agency)==F) %>% select(UZA,`UZA Name`,`UZA Area SQ Miles`,`Service Area Population`,`Service Area SQ Miles`,`Most Recent Report Year`,Active,`Reporter Type`,Agency,Mode)
+
+upt2<-upt %>%  filter(is.na(Agency) == F) %>% 
+          gather(year_mon,upt,-Agency,-Active,-`Reporter Type`,-UZA,
+                    -`UZA Name`,-Modes,-TOS,-`5 digit NTD ID`,-`4 digit NTD ID`)  %>% 
+                  mutate(Month=substr(year_mon, start = 1, stop = 3) %>% as.factor(),
+                     Year=substr(year_mon,start=4,stop =5 ),
+                     Month=
+                       fct_recode(Month,"1"="JAN","2"="FEB","3"="MAR","4"="APR","5"="MAY",
+                                      "6"="JUN","7"="JUL","8"="AUG","9"="SEP","10"="OCT",
+                                      "11"="NOV","12"="DEC") %>% as.character(),
+                     Date=paste0("01","/",Month,"/","20",Year) %>% dmy()
+                     )
+
+
+vrm2<-vrm %>% filter(is.na(Agency) == F) %>% 
+          gather(year_mon,vrm,-Agency,-Active,-`Reporter Type`,-UZA,
+                    -`UZA Name`,-Modes,-TOS,-`5 digit NTD ID`,-`4 digit NTD ID`) %>% 
+              mutate(Month=substr(year_mon, start = 1, stop = 3) %>% as.factor(),
+                  Year=substr(year_mon,start=4,stop =5 ),
+                  Month=fct_recode(Month,"1"="JAN","2"="FEB","3"="MAR","4"="APR","5"="MAY",
+                                      "6"="JUN","7"="JUL","8"="AUG","9"="SEP","10"="OCT",
+                                      "11"="NOV","12"="DEC") %>% as.character(),
+                  Date=paste0("01","/",Month,"/","20",Year) %>% dmy()
+                     ) 
+
+vrm2$MT<-"Oth"
+vrm2$MT[vrm2$Agency=="Metro Transit"]<-"MT"
+vrm2$MT[vrm2$Agency=="Metro Mobility"]<-"MB"
+vrm2$MT[vrm2$Agency=="Metropolitan Council"]<-"METC"
+
+upt2$MT<-"Oth"
+upt2$MT[upt2$Agency=="Metro Transit"]<-"MT"
+upt2$MT[upt2$Agency=="Metro Mobility"]<-"MB"
+upt2$MT[upt2$Agency=="Metropolitan Council"]<-"METC"
+
+
+
+mt<-left_join(upt2,vrm2)
+
+mt$pop.uza<-df$`UZA Population`[match(mt$UZA,df$UZA)]
+mt$area<-df$`Service Area SQ Miles`[match(mt$UZA,df$UZA)]
+mt$pop.sa<-df$`Service Area Population`[match(mt$UZA,df$UZA)]
+
+
+```
+
+Modes breakdown:
+CR = commuter rail
+LR = light rail
+MB = bus
+DR = Demand Response (like Metro Mobility)
+PB = Publico. A transit mode comprised of passenger vans or small buses operating with fixed routes but no fixed schedules in Puerto Rico. Publicos (PB) are a privately owned and operated public transit service which is market oriented and unsubsidized, but regulated through a public service commission, state or local government. 
+HR = Heavy Rail 
+VP = Van pool 
+
+Main question - against other metro areas, how does Metro Transit compare? 
+
+Vehicle Revenue Miles (VRM)
+The miles that vehicles are scheduled to or actually travel while in revenue service. Vehicle revenue miles include: 
+  • Layover / recovery time.
+exclude: 
+    • Deadhead; (miles travlled outside of revenue hours/trips)
+    •   Operator training;
+    •   Vehicle maintenance testing; and
+    •   School bus and charter services.
+
+```{r exploratory plots, echo=FALSE}
+#A summarized dataset looking at vrm, upt, 
+gg0<-mt %>% filter(Modes != "PB",MT %in% c("MB","METC","MT")) %>% mutate(Year=year(Date)) %>%
+  group_by(Year) %>% 
+    summarize(pop.sa=mean(pop.sa,na.rm=T),vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T),
+              area=mean(area,na.rm=T)) %>%
+       mutate(vrm.per.pop=vrm/pop.sa,vrm.per.area=vrm/area) %>% ungroup() %>% 
+    ggplot(aes(x=Year,y=(vrm/10^6))) + geom_line() + 
+    ggtitle("Annual VRM at Met Transit, MB, and METC") #+ 
+    #  scale_y_continuous("Million VRM",labels =                                                            scales::comma,breaks=seq(0,40,1)) 
+   # scale_x_continuous(breaks=seq(2002,2019,2))
+gg0
+
+gg0a<-mt %>% filter(Modes != "PB",MT %in% c("MB","METC","MT")) %>% 
+  mutate(Year=year(Date)) %>%
+  group_by(Year) %>% 
+    summarize(pop.sa=mean(pop.sa,na.rm=T),vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T),
+              area=mean(area,na.rm=T)) %>%
+       mutate(vrm.per.pop=vrm/pop.sa,vrm.per.area=vrm/area) %>% ungroup() %>% 
+    ggplot(aes(x=Year,y=(upt/10^6))) + geom_line() + 
+    ggtitle("Annual UPT at Met Transit, MB, and METC") #+ 
+     # scale_y_continuous("Million UPT",labels =                                                           # scales::comma,breaks=seq(0,40,1)) 
+   # scale_x_continuous(breaks=seq(2002,2019,2))
+gg0a
+
+ 
+  
+  
+
+
+gg1.df<-mt %>% filter(Modes != "PB") %>% group_by(Date,MT,`Reporter Type`,Modes) %>% 
+    summarize(pop.sa=mean(pop.sa,na.rm=T),vrm=mean(vrm,na.rm=T),upt=mean(upt,na.rm=T),
+              area=mean(area,na.rm=T)) %>%
+          mutate(vrm.per.pop=vrm/pop.sa,vrm.per.area=vrm/area,Year=year(Date)) %>% ungroup() 
+
+
+
+gg1<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>%  group_by(Year,Modes) %>% 
+    summarize(vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T)) %>%
+    ggplot(aes(x=Year,y=(vrm/10^6),color=Modes)) + geom_line() + 
+    ggtitle("Annual VRM at Met Transit by Mode") + scale_y_continuous("Million VRM",labels =                                                            scales::comma,breaks=seq(0,40,1)) +
+    scale_x_continuous(breaks=seq(2002,2019,2))
+gg1
+
+gg2<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>%  group_by(Year,Modes) %>% 
+    summarize(vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T)) %>%
+    ggplot(aes(x=Year,y=(upt/10^6),color=Modes)) + geom_line() + 
+    ggtitle("Annual UPT at Met Transit by Mode") + scale_y_continuous("Million UPT",labels =                                                            scales::comma,breaks=seq(0,80,5)) +
+    scale_x_continuous(breaks=seq(2002,2019,2))
+gg2
+
+#Percent UPT per vrm
+gg3<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>%  group_by(Year,Modes) %>% 
+    summarize(vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T)) %>%
+    ggplot(aes(x=Year,y=(upt/10^6)/(vrm/10^6),color=Modes)) + geom_line() + 
+    ggtitle("Annual UPT/VRM at Met Transit by Mode") + 
+    scale_y_continuous("Million UPT/VRM",labels =                                                            scales::comma,breaks=seq(0,10,1)) +
+    scale_x_continuous(breaks=seq(2002,2019,2))
+gg3
+
+gg4<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>%  group_by(Year,Modes,MT) %>% 
+    summarize(vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T)) %>%
+    mutate(gp=paste0(MT,"-",Modes)) %>%
+    ggplot(aes(x=Year,y=(upt/10^6)/(vrm/10^6),color=gp)) + geom_line() + 
+    ggtitle("Annual UPT/VRM at Met Transit by Mode broken down") + 
+    scale_y_continuous("Million UPT/VRM",labels =                                                            scales::comma,breaks=seq(0,10,1)) +
+    scale_x_continuous(breaks=seq(2002,2019,2))
+gg4
+
+
+gg5<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>%  group_by(Year,Modes,MT) %>% 
+    summarize(vrm=sum(vrm,na.rm=T),upt=sum(upt,na.rm=T)) %>%
+    mutate(gp=paste0(MT,"-",Modes)) %>%
+    ggplot(aes(x=Year,y=(upt/10^6),color=gp)) + geom_line() + 
+    ggtitle("Annual UPT by Mode broken down") + 
+    scale_y_continuous("Million UPT",labels =                                                            scales::comma,breaks=seq(0,80,2)) +
+    scale_x_continuous(breaks=seq(2002,2019,2))
+gg5
+
+#monthly UPT over time for Met Transit 
+
+gg6.m<- gg1.df %>% filter(MT %in% c("MB","METC","MT")) %>% 
+    mutate(gp=paste0(MT,"-",Modes)) %>%
+    ggplot(aes(x=Date,y=(upt/10^6),color=gp)) + geom_line() + 
+    ggtitle("Monthly UPT by Mode broken down") + 
+    scale_y_continuous("Million UPT",labels =                                                            scales::comma,breaks=seq(0,80,2)) +
+   scale_x_date(date_labels = "%b %y",date_breaks = "2 months") + 
+   theme(axis.text.x =element_text(angle=90))
+gg6.m
+
+
+#Significant monthly fluctation. Worth looking at.
+monthly.fluc<-gg1.df %>% filter(Year>2015, Year<2019,MT %in% c("MB","METC","MT"))  %>%
+      group_by(month(Date),MT,Modes) %>%
+    summarize(vrm.m=mean(vrm,na.rm=T), 
+              vrm.sum=sum(vrm,na.rm=T),
+              upt.m=mean(upt,na.rm=T),
+              vrm.sd=sd(vrm,na.rm=T),
+              upt.sf=sd(upt,na.rm=T)) %>%
+  ggplot(aes(x=`month(Date)`,y=vrm.sum/10^6,color=paste0(MT,"-",Modes))) + geom_line() +   
+  scale_x_continuous(breaks=seq(1,12,1)) + scale_y_continuous("Mil. VRM",breaks=seq(0,7,1))
+  ggtitle("Cum Mil VRM  by month (2015-2018)") 
+
+monthly.fluc
+
+monthly.fluc2<-gg1.df %>% filter(Year>2015, Year<2019,MT %in% c("MB","METC","MT"))  %>%
+      group_by(month(Date),MT,Modes) %>%
+    summarize(vrm.m=mean(vrm,na.rm=T), 
+              vrm.sum=sum(vrm,na.rm=T),
+              upt.m=mean(upt,na.rm=T),
+              vrm.sd=sd(vrm,na.rm=T),
+              upt.sf=sd(upt,na.rm=T)) %>%
+  ggplot(aes(x=`month(Date)`,y=vrm.m/10^6,color=paste0(MT,"-",Modes))) + geom_line() +   
+  scale_x_continuous(breaks=seq(1,12,1)) + scale_y_continuous("Mil. VRM",breaks=seq(0,7,1)) + 
+  ggtitle("Mean VRM  by month (2015-2018)")   
+
+monthly.fluc2
+  
+monthly.fluc3<-gg1.df %>% filter(Year>2015, Year<2019,MT %in% c("MB","METC","MT"))  %>%
+      group_by(month(Date),MT,Modes) %>%
+    summarize(vrm.m=mean(vrm,na.rm=T), 
+              vrm.sum=sum(vrm,na.rm=T),
+              upt.m=mean(upt,na.rm=T),
+              vrm.sd=sd(vrm,na.rm=T),
+              upt.sf=sd(upt,na.rm=T)) %>%
+  ggplot(aes(x=`month(Date)`,y=upt.m/10^6,color=paste0(MT,"-",Modes))) + geom_line() +   
+  scale_x_continuous(breaks=seq(1,12,1)) + scale_y_continuous("Mil. UPT",breaks=seq(0,7,1)) +
+  ggtitle("Mean Upt by month (2015-2018)")   
+  
+monthly.fluc3  
+#gg1 %>% ggplotly()
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
