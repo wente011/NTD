@@ -9,19 +9,24 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(plotly)
 library(tidyverse)
 library(lubridate)
 library(stringi)
 library(magrittr)
+library(curl)
 library(readxl)
 ```
 
 
-```{r data prep, include=FALSE}
-df<-read_excel("November 2019 Raw Database.xlsx",sheet="MASTER")
-upt<-read_excel("November 2019 Raw Database.xlsx",sheet="UPT")
-vrm<-read_excel("November 2019 Raw Database.xlsx",sheet="VRM")
+```{r raw data prep, include=FALSE}
+#Download the raw dataset
+url<-"https://www.transit.dot.gov/sites/fta.dot.gov/files/November%202019%20Raw%20Database.xlsx"
+tmp<-tempfile()
+dl<-curl_download(url,destfile = tmp,mode="wb")
+
+df<-read_excel(dl,sheet="MASTER")
+upt<-read_excel(dl,sheet="UPT")
+vrm<-read_excel(dl,sheet="VRM")
 
 pop<- df %>% filter(is.na(Agency)==F) %>% select(UZA,`UZA Name`,`UZA Area SQ Miles`,`Service Area Population`,`Service Area SQ Miles`,`Most Recent Report Year`,Active,`Reporter Type`,Agency,Mode)
 
@@ -229,10 +234,56 @@ monthly.fluc3
 
 
 
+```{r Stats,echo=FALSE}
+#Annual upt.vrm stats. UZA 16 is the broad category I want. 
+
+mt %<>% mutate(upt.vrm=upt/vrm,Year=year(Date)) 
+
+#Create annual statistic
+an<- mt %>% group_by(Year,`UZA Name`,UZA,pop.sa,pop.uza,area,MT) %>%
+        summarize(upt=sum(upt,na.rm=T),vrm=sum(vrm,na.rm=T)) %>% ungroup() %>%
+        mutate(upt.vrm=upt/vrm,MT=as.factor(MT)) %>% group_by(Year) %>%
+        mutate(
+          rank = row_number(-upt.vrm)*1,
+          Value_rel = upt.vrm/upt.vrm[rank %in% 1],
+          Value_lbl = paste0(" ", round(upt.vrm,digits=2)),
+          pct.rank=percent_rank(upt.vrm) %>% round(digits=2)) %>% 
+        arrange(upt.vrm) %>%
+        ungroup()
+  
 
 
 
 
+
+gg7<- an %>% filter(MT != "Oth") %>% ggplot(aes(x=Year,y=upt.vrm,color=MT)) + geom_line() + 
+                                      scale_y_continuous("Million UPT/VRM",breaks=seq(0,4,0.5)) + 
+                                      scale_x_continuous(breaks=seq(2002,2019,1)) +
+                                      theme(axis.text.x = element_text(angle=45)) + 
+                                      ggtitle("Million UPT/VRM for METC")
+
+
+
+#Another good viz could be ranking of METC agencies overtime
+
+gg8<-an %>% filter(MT != "Oth") %>% ggplot(aes(x=Year,y=pct.rank,color=MT)) + geom_line() + 
+                                    scale_y_continuous("Percentile UPT/VRM", 
+                                                        breaks=seq(0,1,.1),label=scales::percent) + 
+                                    scale_x_continuous(breaks=seq(2002,2019,1)) + 
+                                     theme(axis.text.x = element_text(angle=45)) + 
+                                     ggtitle("Percentile Ranking of METC UPT/VRM, (n=389 UZA)")
+
+gg8
+
+
+
+```
+
+
+
+```{r}
+
+```
 
 
 
