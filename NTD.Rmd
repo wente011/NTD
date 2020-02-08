@@ -13,7 +13,9 @@ library(tidyverse)
 library(lubridate)
 library(stringi)
 library(magrittr)
+library(broom)
 library(curl)
+library(forecast)
 library(readxl)
 ```
 
@@ -71,6 +73,8 @@ mt<-left_join(upt2,vrm2)
 mt$pop.uza<-df$`UZA Population`[match(mt$UZA,df$UZA)]
 mt$area<-df$`Service Area SQ Miles`[match(mt$UZA,df$UZA)]
 mt$pop.sa<-df$`Service Area Population`[match(mt$UZA,df$UZA)]
+
+mt %<>% mutate(Year=year(Date))
 
 
 ```
@@ -240,9 +244,9 @@ monthly.fluc3
 mt %<>% mutate(upt.vrm=upt/vrm,Year=year(Date)) 
 
 #Create annual statistic
-an<- mt %>% group_by(Year,`UZA Name`,UZA,pop.sa,pop.uza,area,MT) %>%
+an<- mt %>% group_by(Year,`UZA Name`,UZA,pop.sa,pop.uza,area) %>%
         summarize(upt=sum(upt,na.rm=T),vrm=sum(vrm,na.rm=T)) %>% ungroup() %>%
-        mutate(upt.vrm=upt/vrm,MT=as.factor(MT)) %>% group_by(Year) %>%
+        mutate(upt.vrm=upt/vrm) %>% group_by(Year) %>%
         mutate(
           rank = row_number(-upt.vrm)*1,
           Value_rel = upt.vrm/upt.vrm[rank %in% 1],
@@ -256,7 +260,7 @@ an<- mt %>% group_by(Year,`UZA Name`,UZA,pop.sa,pop.uza,area,MT) %>%
 
 
 
-gg7<- an %>% filter(MT != "Oth") %>% ggplot(aes(x=Year,y=upt.vrm,color=MT)) + geom_line() + 
+gg7<- an %>% filter(UZA == 16) %>% ggplot(aes(x=Year,y=upt.vrm)) + geom_line() + 
                                       scale_y_continuous("Million UPT/VRM",breaks=seq(0,4,0.5)) + 
                                       scale_x_continuous(breaks=seq(2002,2019,1)) +
                                       theme(axis.text.x = element_text(angle=45)) + 
@@ -266,14 +270,15 @@ gg7<- an %>% filter(MT != "Oth") %>% ggplot(aes(x=Year,y=upt.vrm,color=MT)) + ge
 
 #Another good viz could be ranking of METC agencies overtime
 
-gg8<-an %>% filter(MT != "Oth") %>% ggplot(aes(x=Year,y=pct.rank,color=MT)) + geom_line() + 
-                                    scale_y_continuous("Percentile UPT/VRM", 
-                                                        breaks=seq(0,1,.1),label=scales::percent) + 
+gg8<-an %>% filter(UZA == 16) %>% ggplot(aes(x=Year,y=pct.rank)) + geom_line() + 
                                     scale_x_continuous(breaks=seq(2002,2019,1)) + 
                                      theme(axis.text.x = element_text(angle=45)) + 
-                                     ggtitle("Percentile Ranking of METC UPT/VRM, (n=389 UZA)")
+                                     ggtitle("Percentile Ranking of Twin Cities UPT/VRM, (n=389 UZA)") +                scale_y_continuous("Percentile UPT/VRM",                                                                               breaks=seq(0,1,.1),
+                                    limits=c(0,1),label=scales::percent)                                                                                   
 
 gg8
+
+
 
 
 
@@ -281,7 +286,54 @@ gg8
 
 
 
-```{r}
+```{r time series assessment, echo=FALSE}
+
+#create a couple of nested dataframes to work with. 
+ar.f<-function(data){
+  x=data$upt.ts
+  y=auto.arima(x) 
+  return(y)
+}
+
+
+tsd<-mt %>% filter(MT != "Oth",Year>2008) %>% group_by(MT,Date) %>% 
+            summarize(upt=sum(upt,na.rm=T)) %>% ungroup() %>% mutate(Month=month(Date))
+
+#Just to look at the in moth variability
+gg9<-tsd %>% ggplot(aes(y=upt,x=as.factor(Month),color=MT)) + geom_boxplot()
+gg9
+
+upt.ts<-ts(tsd[tsd$MT=="MT",]$upt,frequency = 12)
+
+upt.ts %>% decompose() %>% autoplot()
+
+mods<- c("arima","ets","ann","exp","panel","randomforest","tbats") %>% enframe()
+mods %>% mutate(mods=list())
+
+ar.mod<-auto.arima(upt.ts)
+accuracy(ar.mod)
+
+tbats1<-tbats(upt.ts)
+
+tdate<-tsd$Date[tsd$MT=="MT"]
+accuracy(tbats1)
+
+ets1<-ets(upt.ts)
+
+accuracy(ets1)
+accuracy(ar.mod)
+
+rwf1<-rwf()
+
+g10<-tibble(ar.mod$fitted,upt.ts,tdate) %>%
+          rename(fit="ar.mod$fitted",obs="upt.ts") %>%
+          ggplot(aes(y=upt.ts,x=tdate,color="real")) + geom_line() +
+          geom_line(aes(x=tdate,y=fit,color="fit")) +
+          geom_line(aes(x=tdate,y=fitted(tbats1),color="tbats1"))
+
+g10
+                                       
+                                              
 
 ```
 
